@@ -516,6 +516,135 @@ mypy visuals/charts.py    # No errors
 pytest tests/test_charts.py -v --cov=visuals
 ```
 
+### Phase 4 QPLAN Analysis
+
+**Consistency with Existing Codebase:** ✅
+- `visuals/charts.py` follows same module structure as `analytics/performance.py`
+- Pure functions with no side effects (except logging)
+- All functions accept data parameters (no global state)
+- Returns Plotly `go.Figure` objects (standard pattern)
+
+**Code Reuse Opportunities:** ✅
+1. **Analytics Integration:**
+   - `calculate_allocation()` → feeds `create_allocation_pie_chart()`
+   - `calculate_position_values()` → feeds `create_allocation_bar_chart()`
+   - `calculate_returns()` + `calculate_volatility()` → feed `create_risk_return_scatter()`
+
+2. **Settings Integration:**
+   - `settings.chart_preferences.color_scheme` → apply to all charts
+   - `settings.chart_preferences.show_grid` → chart grid display
+   - `settings.chart_preferences.show_legend` → legend visibility
+
+3. **Portfolio Integration:**
+   - Charts accept Portfolio objects OR processed data (flexibility)
+   - Example: `create_allocation_pie_chart(portfolio, prices)` internally calls `calculate_allocation()`
+
+**Minimal Changes:** ✅
+- **New files only:** `visuals/charts.py`, `tests/test_charts.py`
+- **No modifications** to existing Phase 1-3 files
+- Purely additive implementation
+
+**Python Best Practices:** ✅
+- Type hints on all function signatures
+- Google-style docstrings with Args/Returns/Raises/Example
+- Specific exception handling (ValueError for invalid inputs)
+- Logging for chart creation events
+- Testable by inspecting returned `go.Figure` properties
+- Context managers for file exports
+
+**Implementation Approach:**
+```python
+# visuals/charts.py structure (200-250 statements)
+"""
+Chart generation for PEA ETF Tracker.
+
+Provides Plotly chart creation functions for portfolio visualization.
+"""
+
+import logging
+from datetime import date
+from typing import Dict, List, Optional
+from pathlib import Path
+
+import plotly.graph_objects as go
+import plotly.express as px
+
+from config.settings import ChartPreferences
+
+logger = logging.getLogger(__name__)
+
+# Module constants
+COLOR_SCHEMES = {
+    "plotly": px.colors.qualitative.Plotly,
+    "pastel": px.colors.qualitative.Pastel,
+    "bold": px.colors.qualitative.Bold,
+}
+
+# Chart creation functions (pure, no side effects)
+def create_portfolio_value_chart(
+    dates: List[date],
+    values: List[float],
+    title: str = "Portfolio Value Over Time"
+) -> go.Figure:
+    """Line chart of portfolio value over time."""
+
+def create_allocation_pie_chart(
+    tickers: List[str],
+    percentages: List[float],
+    title: str = "Portfolio Allocation"
+) -> go.Figure:
+    """Pie chart showing position allocation."""
+
+def create_allocation_bar_chart(
+    tickers: List[str],
+    values: List[float],
+    title: str = "Position Values"
+) -> go.Figure:
+    """Bar chart showing allocation by ticker."""
+
+def create_risk_return_scatter(
+    tickers: List[str],
+    returns: List[float],
+    volatilities: List[float],
+    title: str = "Risk vs Return"
+) -> go.Figure:
+    """Scatter plot of ETF returns vs volatility."""
+
+def create_performance_chart(
+    dates: List[date],
+    prices: List[float],
+    ticker: str,
+    chart_type: str = "line"
+) -> go.Figure:
+    """Line or candlestick chart for historical performance."""
+
+def apply_chart_theme(
+    fig: go.Figure,
+    preferences: ChartPreferences
+) -> go.Figure:
+    """Apply user chart preferences (grid, legend, colors)."""
+
+def export_chart_to_png(fig: go.Figure, path: Path) -> None:
+    """Export chart to PNG file."""
+
+def export_chart_to_html(fig: go.Figure, path: Path) -> None:
+    """Export chart to interactive HTML file."""
+```
+
+**Testing Strategy (25-30 tests):**
+- Chart creation returns valid `go.Figure` objects
+- Charts contain correct number of traces
+- Chart preferences applied correctly
+- Export functions create valid PNG/HTML files
+- Error handling for invalid inputs (empty data, mismatched lengths)
+- Edge cases (single data point, all zero values)
+
+**Estimated Effort:**
+- Implementation: 200-250 statements
+- Tests: 25-30 tests
+- Timeline: 3-4 days
+- Coverage target: ≥80%
+
 ---
 
 ## **Phase 5: PyQt6 User Interface - Core** (Week 5)
@@ -559,6 +688,479 @@ pylint ui/main_window.py ui/portfolio_table.py main.py  # Score ≥ 8.0
 mypy ui/main_window.py ui/portfolio_table.py main.py    # No errors
 pytest tests/test_integration.py -v
 ```
+
+### Phase 5 QPLAN Analysis
+
+**Consistency with Existing Codebase:** ✅
+- UI layer (`ui/`) cleanly separated from business logic (`data/`, `analytics/`, `visuals/`)
+- MainWindow class delegates to existing modules (no business logic in UI)
+- Follows same error handling pattern (try/except with specific exceptions)
+- Uses logging throughout (no print() statements)
+- Type hints on all methods and slots
+
+**Code Reuse Opportunities:** ✅
+1. **Settings Integration:**
+   - Load window geometry from `settings.window_geometry` (WindowGeometry dataclass)
+   - Save window geometry on close with `save_settings()`
+   - Apply chart preferences to embedded visualizations
+
+2. **Portfolio CRUD Operations:**
+   - `portfolio.add_position()` → "Add Position" dialog handler
+   - `portfolio.remove_position()` → "Delete" button handler
+   - `portfolio.update_position()` → "Edit Position" dialog handler
+   - `portfolio.save_to_json()` → "Save Portfolio" menu action
+   - `portfolio.load_from_json()` → "Open Portfolio" menu action
+   - `portfolio.export_to_csv()` / `import_from_csv()` → Import/Export menu
+
+3. **Market Data Integration:**
+   - `fetch_price()` → real-time price updates in table (QTimer for auto-refresh)
+   - Price caching → offline support indicator in status bar
+   - Error handling → display QMessageBox for network failures
+
+4. **Analytics Integration:**
+   - `calculate_portfolio_value()` → status bar total value display
+   - `calculate_pnl()` → P&L column in portfolio table
+   - `calculate_allocation()` → allocation percentage column
+
+5. **Visualization Integration:**
+   - Embed Plotly charts using `QWebEngineView` (requires `PyQt6-WebEngine`)
+   - Chart tabs: Portfolio Value, Allocation, Risk/Return
+   - Export charts from UI using existing `export_chart_to_png/html()`
+
+**Minimal Changes:** ✅
+- **New files:**
+  - `ui/main_window.py` (MainWindow class)
+  - `ui/portfolio_table.py` (PortfolioTableWidget class)
+  - `tests/test_integration.py` (GUI integration tests)
+  - Update `main.py` (replace stub with application entry point)
+
+- **New dependencies:** Add to `requirements.txt`:
+  - `PyQt6-WebEngine` (for embedding Plotly charts)
+  - `pytest-qt` (for GUI testing)
+
+- **Potential Settings update:**
+  - `settings.last_portfolio_path` already exists → no change needed
+  - Window geometry save/load already supported via `WindowGeometry` dataclass
+
+**Python Best Practices:** ✅
+- **Separation of concerns:** UI delegates all business logic to existing modules
+- **Type hints:** All PyQt6 slots, methods, and signals fully typed
+- **Error handling:** User-friendly QMessageBox for errors, logging to file
+- **Testing strategy:**
+  - Unit tests for business logic already complete (Phase 2-3)
+  - Integration tests for GUI using `pytest-qt`
+  - Test user interactions: button clicks, dialogs, table updates, menu actions
+- **Resource management:** Context managers for file operations
+- **Logging:** Log UI events (window open/close, menu actions, errors)
+
+**Implementation Approach:**
+
+```python
+# main.py structure (50-80 statements)
+"""
+PEA ETF Tracker - Main application entry point.
+"""
+
+import sys
+import logging
+from pathlib import Path
+
+from PyQt6.QtWidgets import QApplication
+
+from config.settings import load_settings
+from data.portfolio import Portfolio
+from ui.main_window import MainWindow
+
+logger = logging.getLogger(__name__)
+
+def main() -> int:
+    """
+    Application entry point.
+
+    Returns:
+        Exit code (0 for success, 1 for error).
+
+    Example:
+        >>> sys.exit(main())
+    """
+    try:
+        # Configure logging to file
+        log_dir = Path.home() / "Library/Logs/PEA_ETF_Tracker"
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_dir / "app.log"),
+                logging.StreamHandler()
+            ]
+        )
+
+        logger.info("Starting PEA ETF Tracker v1.0")
+
+        # Load settings
+        settings = load_settings()
+
+        # Load last portfolio or create empty
+        portfolio = Portfolio()
+        if settings.last_portfolio_path:
+            try:
+                portfolio = Portfolio.load_from_json(
+                    Path(settings.last_portfolio_path)
+                )
+                logger.info(f"Loaded portfolio: {settings.last_portfolio_path}")
+            except Exception as e:
+                logger.warning(f"Could not load last portfolio: {e}")
+
+        # Create Qt application
+        app = QApplication(sys.argv)
+        app.setApplicationName("PEA ETF Tracker")
+        app.setOrganizationName("Philippe Avarre")
+
+        # Create and show main window
+        window = MainWindow(settings, portfolio)
+        window.show()
+
+        logger.info("Application started successfully")
+        return app.exec()
+
+    except Exception as e:
+        logger.error(f"Application error: {e}", exc_info=True)
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+```python
+# ui/main_window.py structure (300-400 statements)
+"""
+Main application window for PEA ETF Tracker.
+"""
+
+import logging
+from pathlib import Path
+from typing import Optional
+
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtWidgets import (
+    QMainWindow, QTabWidget, QStatusBar, QMenuBar, QToolBar,
+    QMessageBox, QFileDialog, QWidget, QVBoxLayout
+)
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+
+from config.settings import Settings, save_settings
+from data.portfolio import Portfolio
+from data.market_data import fetch_price
+from analytics.performance import calculate_portfolio_value, calculate_pnl
+from visuals.charts import create_portfolio_value_chart
+from ui.portfolio_table import PortfolioTableWidget
+
+logger = logging.getLogger(__name__)
+
+class MainWindow(QMainWindow):
+    """Main application window."""
+
+    def __init__(self, settings: Settings, portfolio: Portfolio) -> None:
+        """
+        Initialize main window.
+
+        Args:
+            settings: Application settings.
+            portfolio: Portfolio to display.
+        """
+        super().__init__()
+        self.settings = settings
+        self.portfolio = portfolio
+        self.prices: dict[str, float] = {}
+
+        self._setup_ui()
+        self._connect_signals()
+        self._load_geometry()
+
+        # Auto-refresh timer
+        if settings.auto_refresh_enabled:
+            self._start_auto_refresh()
+
+    def _setup_ui(self) -> None:
+        """Create UI elements."""
+        self.setWindowTitle("PEA ETF Tracker v1.0")
+        self._create_menu_bar()
+        self._create_toolbar()
+        self._create_central_widget()
+        self._create_status_bar()
+
+    def _create_menu_bar(self) -> None:
+        """Create menu bar with File, Edit, View, Help."""
+        menubar = self.menuBar()
+
+        # File menu
+        file_menu = menubar.addMenu("&File")
+        # Actions: New, Open, Save, Save As, Import CSV, Export CSV, Exit
+
+        # Edit menu
+        edit_menu = menubar.addMenu("&Edit")
+        # Actions: Add Position, Edit Position, Delete Position, Refresh Prices
+
+        # View menu
+        view_menu = menubar.addMenu("&View")
+        # Actions: Portfolio, Charts, Settings
+
+        # Help menu
+        help_menu = menubar.addMenu("&Help")
+        # Actions: About, Documentation
+
+    def _create_toolbar(self) -> None:
+        """Create toolbar with common actions."""
+        toolbar = self.addToolBar("Main Toolbar")
+        # Add common actions: Open, Save, Add Position, Refresh
+
+    def _create_central_widget(self) -> None:
+        """Create tab widget with Portfolio, Charts, Settings tabs."""
+        self.tabs = QTabWidget()
+
+        # Portfolio tab
+        self.portfolio_table = PortfolioTableWidget(self.portfolio)
+        self.tabs.addTab(self.portfolio_table, "Portfolio")
+
+        # Charts tab (embedded Plotly)
+        charts_widget = QWidget()
+        # Add QWebEngineView for Plotly charts
+        self.tabs.addTab(charts_widget, "Charts")
+
+        self.setCentralWidget(self.tabs)
+
+    def _create_status_bar(self) -> None:
+        """Create status bar with connection status and portfolio value."""
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self._update_status_bar()
+
+    def _update_status_bar(self) -> None:
+        """Update status bar with current portfolio value and status."""
+        if self.prices:
+            total_value = calculate_portfolio_value(self.portfolio, self.prices)
+            pnl = calculate_pnl(self.portfolio, self.prices)
+            self.status_bar.showMessage(
+                f"Portfolio Value: €{total_value:.2f} | P&L: €{pnl:.2f}"
+            )
+        else:
+            self.status_bar.showMessage("Ready")
+
+    def _start_auto_refresh(self) -> None:
+        """Start auto-refresh timer for price updates."""
+        interval_ms = self.settings.auto_refresh_interval_minutes * 60 * 1000
+        self.refresh_timer = QTimer()
+        self.refresh_timer.timeout.connect(self._refresh_prices)
+        self.refresh_timer.start(interval_ms)
+        logger.info(f"Auto-refresh enabled: {self.settings.auto_refresh_interval_minutes} min")
+
+    def _refresh_prices(self) -> None:
+        """Fetch latest prices and update UI."""
+        # Fetch prices for all positions
+        # Update portfolio table
+        # Update status bar
+
+    def _load_geometry(self) -> None:
+        """Load window geometry from settings."""
+        geom = self.settings.window_geometry
+        self.setGeometry(geom.x, geom.y, geom.width, geom.height)
+
+    def _save_geometry(self) -> None:
+        """Save current window geometry to settings."""
+        rect = self.geometry()
+        self.settings.window_geometry.x = rect.x()
+        self.settings.window_geometry.y = rect.y()
+        self.settings.window_geometry.width = rect.width()
+        self.settings.window_geometry.height = rect.height()
+
+    def closeEvent(self, event) -> None:
+        """Handle window close event - save settings."""
+        self._save_geometry()
+        save_settings(self.settings)
+        logger.info("Application closed")
+        event.accept()
+```
+
+```python
+# ui/portfolio_table.py structure (200-250 statements)
+"""
+Portfolio table widget with CRUD operations.
+"""
+
+import logging
+from typing import Dict, Optional
+
+from PyQt6.QtWidgets import (
+    QTableWidget, QTableWidgetItem, QHeaderView,
+    QPushButton, QHBoxLayout, QWidget
+)
+from PyQt6.QtCore import Qt
+
+from data.portfolio import Portfolio, ETFPosition
+
+logger = logging.getLogger(__name__)
+
+class PortfolioTableWidget(QTableWidget):
+    """Table widget displaying portfolio positions with CRUD operations."""
+
+    def __init__(self, portfolio: Portfolio) -> None:
+        """
+        Initialize portfolio table.
+
+        Args:
+            portfolio: Portfolio to display.
+        """
+        super().__init__()
+        self.portfolio = portfolio
+        self._setup_table()
+        self._populate_table()
+
+    def _setup_table(self) -> None:
+        """Configure table columns and headers."""
+        self.setColumnCount(7)
+        self.setHorizontalHeaderLabels([
+            "Ticker", "Name", "Quantity", "Buy Price (€)",
+            "Current Price (€)", "P&L (€)", "P&L %"
+        ])
+
+        # Configure column sizing
+        header = self.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+        # Enable sorting
+        self.setSortingEnabled(True)
+
+    def _populate_table(self) -> None:
+        """Populate table with portfolio positions."""
+        positions = self.portfolio.get_all_positions()
+        self.setRowCount(len(positions))
+
+        for row, position in enumerate(positions):
+            self.setItem(row, 0, QTableWidgetItem(position.ticker))
+            self.setItem(row, 1, QTableWidgetItem(position.name))
+            self.setItem(row, 2, QTableWidgetItem(str(position.quantity)))
+            self.setItem(row, 3, QTableWidgetItem(f"{position.buy_price:.2f}"))
+            # Current price, P&L, P&L% filled when prices updated
+
+    def update_prices(self, prices: Dict[str, float]) -> None:
+        """
+        Update current prices and recalculate P&L for all positions.
+
+        Args:
+            prices: Dictionary mapping ticker to current price.
+        """
+        for row in range(self.rowCount()):
+            ticker_item = self.item(row, 0)
+            if ticker_item:
+                ticker = ticker_item.text()
+                if ticker in prices:
+                    current_price = prices[ticker]
+                    # Update current price column
+                    # Calculate and update P&L columns
+```
+
+```python
+# tests/test_integration.py structure (15-20 tests)
+"""
+Integration tests for PyQt6 GUI.
+"""
+
+import pytest
+from pytestqt.qtbot import QtBot
+from pathlib import Path
+
+from ui.main_window import MainWindow
+from ui.portfolio_table import PortfolioTableWidget
+from config.settings import get_default_settings
+from data.portfolio import Portfolio, ETFPosition
+from datetime import date
+
+@pytest.fixture
+def sample_portfolio() -> Portfolio:
+    """Create sample portfolio for testing."""
+    positions = [
+        ETFPosition("EWLD.PA", "Amundi World", 100.0, 28.50, date(2024, 1, 15)),
+        ETFPosition("PE500.PA", "Lyxor S&P 500", 50.0, 42.30, date(2024, 2, 10)),
+    ]
+    return Portfolio(positions)
+
+def test_main_window_opens(qtbot: QtBot, sample_portfolio: Portfolio) -> None:
+    """MainWindow opens and displays without errors."""
+    settings = get_default_settings()
+    window = MainWindow(settings, sample_portfolio)
+    qtbot.addWidget(window)
+    window.show()
+
+    assert window.isVisible()
+    assert window.windowTitle() == "PEA ETF Tracker v1.0"
+
+def test_portfolio_table_displays_positions(
+    qtbot: QtBot, sample_portfolio: Portfolio
+) -> None:
+    """Portfolio table displays all positions correctly."""
+    table = PortfolioTableWidget(sample_portfolio)
+    qtbot.addWidget(table)
+
+    assert table.rowCount() == 2
+    assert table.item(0, 0).text() == "EWLD.PA"
+    assert table.item(1, 0).text() == "PE500.PA"
+
+def test_portfolio_table_updates_prices(
+    qtbot: QtBot, sample_portfolio: Portfolio
+) -> None:
+    """Portfolio table updates when prices provided."""
+    table = PortfolioTableWidget(sample_portfolio)
+    qtbot.addWidget(table)
+
+    prices = {"EWLD.PA": 29.35, "PE500.PA": 43.12}
+    table.update_prices(prices)
+
+    # Verify current price columns updated
+    # Verify P&L calculated correctly
+
+def test_add_position_dialog(qtbot: QtBot, sample_portfolio: Portfolio) -> None:
+    """Add Position dialog creates new position."""
+    # Test add position workflow
+    # Verify position added to portfolio
+    # Verify table updated
+
+def test_settings_saved_on_close(
+    qtbot: QtBot, sample_portfolio: Portfolio, tmp_path: Path
+) -> None:
+    """Settings saved when window closed."""
+    # Test window geometry saved
+    # Test last_portfolio_path updated
+```
+
+**Testing Strategy (15-20 integration tests):**
+- MainWindow opens and displays correctly
+- Menu actions trigger correct handlers
+- Portfolio table displays positions
+- Add/Edit/Delete position dialogs work
+- Price updates refresh table
+- Settings saved on close
+- Auto-refresh timer works
+- File operations (Open/Save portfolio)
+- Error handling displays QMessageBox
+
+**Estimated Effort:**
+- Implementation: 550-750 statements total
+  - `main.py`: 50-80 statements
+  - `ui/main_window.py`: 300-400 statements
+  - `ui/portfolio_table.py`: 200-250 statements
+- Tests: 15-20 integration tests
+- Timeline: 5-7 days
+- Dependencies: Add `PyQt6-WebEngine`, `pytest-qt` to requirements.txt
+
+**Key Integration Points:**
+1. **Settings:** Load on startup, save on close
+2. **Portfolio:** All CRUD operations, JSON/CSV persistence
+3. **Market Data:** Fetch prices, cache, error handling
+4. **Analytics:** Calculate values for display
+5. **Charts:** Embed in QWebEngineView
 
 ---
 
