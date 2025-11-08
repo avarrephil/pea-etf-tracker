@@ -585,3 +585,317 @@ ETF Manager/
 **Last Updated:** 2025-11-08
 **Current Phase:** Phase 2 - Core Data Models & Configuration
 **Next Review:** End of Phase 2
+
+---
+
+## Phase 2 Implementation Analysis & Patterns (Added 2025-11-08)
+
+### Code Pattern Analysis from Phase 1 Foundation
+
+#### From main.py - Key Patterns to Reuse:
+1. **Module Docstring:** Google-style docstring at top with module purpose
+2. **Pathlib Usage:** Always use `Path.home() / "Library/..."` for macOS paths
+   ```python
+   CONFIG_DIR = Path.home() / "Library/Application Support/PEA_ETF_Tracker"
+   ```
+3. **Logging Setup:** Initialize at module level, never use print()
+   ```python
+   logger = logging.getLogger(__name__)
+   ```
+4. **Type Hints:** All functions must have complete type hints
+   ```python
+   def load_settings(config_path: Path = CONFIG_FILE) -> Settings:
+   ```
+5. **Error Handling:** Use specific exception types, never bare except
+   ```python
+   except json.JSONDecodeError as e:
+       logger.error(f"Invalid JSON: {e}")
+   except FileNotFoundError as e:
+       logger.warning(f"File not found: {e}")
+   ```
+6. **Context Managers:** Always use `with` for file I/O
+   ```python
+   with open(config_path, 'r') as f:
+       config_dict = json.load(f)
+   ```
+
+#### From __init__.py Files - Pattern:
+All __init__.py files follow consistent structure:
+```python
+"""
+[Module Name] management module for PEA ETF Tracker.
+
+This module handles:
+- [Purpose 1]
+- [Purpose 2]
+"""
+
+__version__ = "1.0.0"
+```
+
+### Sample Data Structure Analysis
+
+#### demo_config.json Structure (Settings Dataclass):
+```python
+@dataclass
+class ChartPreferences:
+    default_chart: str = "portfolio_value"
+    color_scheme: str = "plotly"
+    show_grid: bool = True
+    show_legend: bool = True
+
+@dataclass
+class WindowGeometry:
+    width: int = 1200
+    height: int = 800
+    x: int = 100
+    y: int = 100
+
+@dataclass
+class Settings:
+    default_currency: str = "EUR"
+    data_source: str = "yfinance"
+    auto_refresh_enabled: bool = False
+    auto_refresh_interval_minutes: int = 5
+    last_portfolio_path: str = ""
+    chart_preferences: ChartPreferences = field(default_factory=ChartPreferences)
+    window_geometry: WindowGeometry = field(default_factory=WindowGeometry)
+```
+
+#### demo_portfolio.csv Format (ETFPosition Dataclass):
+CSV columns: Ticker, Name, Quantity, BuyPrice, BuyDate
+```python
+@dataclass
+class ETFPosition:
+    ticker: str              # e.g., "EWLD.PA"
+    name: str               # e.g., "Amundi MSCI World UCITS ETF"
+    quantity: float         # e.g., 100.0
+    buy_price: float        # e.g., 28.50
+    buy_date: date          # IMPORTANT: Parse from "2024-01-15" to datetime.date
+```
+
+### AI_CODING_RULES.md Key Requirements for Phase 2
+
+**MUST Requirements:**
+- **C-5 (MUST):** Type hints on ALL function signatures
+- **C-6 (MUST):** Use `from typing import` for complex types
+- **C-8 (MUST):** Use dataclasses for configuration objects (not dicts)
+- **C-10 (MUST):** Follow PEP 8 naming: snake_case functions, PascalCase classes, UPPER_SNAKE_CASE constants
+- **C-12 (MUST):** Use context managers for file operations (with statement)
+- **E-1 (MUST):** Specific exception types, never bare except
+- **F-1 (MUST):** Use pathlib.Path for file operations, never string concatenation
+- **F-2 (MUST):** Use json.load/json.dump with proper error handling
+- **F-3 (SHOULD):** Validate loaded configuration against schema
+- **F-4 (MUST):** Provide sensible defaults when config missing/corrupted
+- **L-1 (SHOULD):** Use logging module, not print()
+- **D-1 (MUST):** Every public function must have Google/NumPy style docstring
+
+**Testing Requirements:**
+- **T-1 (MUST):** Tests in tests/ directory with naming test_*.py
+- **T-7 (MUST):** Use pytest as testing framework
+- **T-8 (SHOULD):** Use pytest.mark.parametrize for multiple inputs
+- **T-9 (MUST):** Descriptive test names that describe what's being tested
+- **T-10 (SHOULD):** Use pytest fixtures for setup/teardown
+
+### Implementation Recommendations by Module
+
+#### config/settings.py
+**Responsibilities:**
+- Load/save settings from ~/Library/Application Support/PEA_ETF_Tracker/config.json
+- Provide sensible defaults on missing/corrupted files
+- Manage nested dataclasses (ChartPreferences, WindowGeometry)
+
+**Key Functions:**
+- `create_default_settings() -> Settings`
+- `load_settings(config_path: Path = CONFIG_FILE) -> Settings` - graceful fallback to defaults
+- `save_settings(settings: Settings, config_path: Path = CONFIG_FILE) -> None`
+- `_validate_settings(settings_dict: Dict[str, Any]) -> bool` - private helper
+
+**Error Handling Strategy:**
+- FileNotFoundError: Create defaults, log warning
+- json.JSONDecodeError: Return defaults, log error
+- PermissionError: Return defaults, log error
+- All other exceptions: Return defaults, log error with exc_info=True
+
+#### data/portfolio.py
+**Responsibilities:**
+- Define ETFPosition dataclass with proper typing
+- Implement Portfolio class with CRUD operations
+- Support CSV import/export via pandas
+- Support JSON persistence with ISO date format
+
+**Key Functions:**
+- `ETFPosition` dataclass with fields: ticker, name, quantity, buy_price, buy_date
+- `Portfolio.__init__(positions: Optional[List[ETFPosition]] = None)`
+- `Portfolio.add_position(position: ETFPosition) -> None` - validates, replaces existing ticker
+- `Portfolio.remove_position(ticker: str) -> None` - raises ValueError if not found
+- `Portfolio.update_position(ticker: str, position: ETFPosition) -> None`
+- `Portfolio.get_position(ticker: str) -> Optional[ETFPosition]`
+- `Portfolio.save_to_json(file_path: Path) -> None` - uses .isoformat() for dates
+- `Portfolio.load_from_json(file_path: Path) -> Portfolio` - uses date.fromisoformat()
+- `Portfolio.save_to_csv(file_path: Path) -> None` - uses pandas DataFrame
+- `Portfolio.load_from_csv(file_path: Path) -> Portfolio` - validates column names
+
+**Important Details:**
+- Dates MUST be datetime.date objects, not strings
+- CSV export/import uses pandas
+- JSON uses ISO date format (YYYY-MM-DD)
+- All file operations use context managers
+- Validation: quantity > 0, buy_price > 0, ticker/name non-empty
+
+#### data/market_data.py
+**Responsibilities:**
+- Fetch current prices from yfinance
+- Cache prices to JSON with timestamp
+- Provide fallback to cache on network failure
+- Fetch historical data for analysis
+
+**Key Functions:**
+- `fetch_price(ticker: str, use_cache: bool = True) -> Optional[float]` - fallback to cache on error
+- `fetch_historical_data(ticker: str, period: str = "1y") -> Optional[pd.DataFrame]`
+- `save_price_to_cache(ticker: str, price: float) -> None`
+- `_get_cached_price(ticker: str) -> Optional[float]`
+- `_is_cache_stale(ticker: str, max_age_hours: int = 24) -> bool`
+- `clear_old_cache_entries(max_age_days: int = 30) -> None`
+
+**Cache File Location:**
+```python
+CACHE_DIR = Path.home() / "Library/Application Support/PEA_ETF_Tracker/cache"
+PRICE_CACHE_FILE = CACHE_DIR / "price_cache.json"
+```
+
+**Cache Format:**
+```json
+{
+  "EWLD.PA": {
+    "price": 28.50,
+    "timestamp": "2025-11-08T18:30:45.123456"
+  }
+}
+```
+
+### Testing Strategy
+
+**test_settings.py:**
+- Test dataclass construction with defaults
+- Test load_settings creates file if missing
+- Test load_settings reads existing file
+- Test load_settings returns defaults on invalid JSON
+- Test load_settings returns defaults on missing required keys
+- Test save_settings creates directory if needed
+- Test save_settings persists values correctly
+- Use parametrize for different currencies
+- Use tmp_path fixture for temp files
+
+**test_portfolio.py:**
+- Test ETFPosition creation and field types
+- Test Portfolio empty initialization
+- Test Portfolio initialization with positions
+- Test add_position (valid, duplicate ticker replacement, validation errors)
+- Test remove_position (existing, missing ticker)
+- Test update_position (valid, missing ticker)
+- Test get_position (found, not found)
+- Test save_to_json (file created, proper format)
+- Test load_from_json (reads correctly, parses dates)
+- Test save_to_csv (exports correct format, uses DataFrame)
+- Test load_from_csv (imports correctly, validates columns)
+- Use parametrize for multiple tickers
+- Test error cases (missing files, invalid data)
+
+**test_market_data.py:**
+- Test fetch_price with mocked yfinance
+- Test fetch_price fallback to cache on error
+- Test fetch_historical_data returns DataFrame
+- Test fetch_historical_data returns None on error
+- Test save_price_to_cache creates file
+- Test _get_cached_price retrieves price
+- Test _is_cache_stale checks age correctly
+- Test clear_old_cache_entries removes old entries
+- Note: May need to mock yfinance to avoid network calls
+
+### Quality Gates for Phase 2
+
+Before committing Phase 2 code, MUST pass all:
+
+```bash
+# 1. Code formatting
+black config/ data/ tests/
+
+# 2. Linting (MUST score ≥ 8.0 each)
+pylint config/settings.py
+pylint data/portfolio.py  
+pylint data/market_data.py
+
+# 3. Type checking (MUST show no errors)
+mypy config/settings.py
+mypy data/portfolio.py
+mypy data/market_data.py
+
+# 4. All tests passing with >80% coverage
+pytest tests/test_settings.py tests/test_portfolio.py tests/test_market_data.py -v
+pytest tests/ --cov=config --cov=data --cov-report=term-missing
+
+# 5. No uncommitted changes
+git status
+```
+
+### Import Order Pattern (Consistent Across All Modules)
+
+```python
+# 1. Standard library imports
+import json
+import logging
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+# 2. Third-party imports
+import pandas as pd
+import numpy as np
+import yfinance as yf
+
+# 3. Local imports
+from config.settings import Settings
+```
+
+### Common Pitfalls to Avoid
+
+1. **❌ Using dict instead of @dataclass for Settings** - Use dataclass (C-8)
+2. **❌ Missing type hints on functions** - Every parameter and return must have type (C-5)
+3. **❌ Using print() instead of logging** - Use logging module (L-1)
+4. **❌ Bare except clause** - Use specific exception types (E-1)
+5. **❌ Not using context managers for files** - Always use `with` statement (C-12)
+6. **❌ Hardcoding file paths as strings** - Use pathlib.Path (F-1)
+7. **❌ No error handling for corrupted JSON** - Always provide defaults (F-4)
+8. **❌ Tests without descriptive names** - Use descriptive test names (T-9)
+9. **❌ Missing docstrings** - Every public function needs docstring (D-1)
+10. **❌ Keeping BuyDate as string** - Must parse to datetime.date object
+
+### Files to Create
+
+Phase 2 requires creating exactly 6 new files:
+
+1. `/Users/philippe/Documents/ETF Manager/config/settings.py` (~180 lines)
+2. `/Users/philippe/Documents/ETF Manager/data/portfolio.py` (~350 lines)
+3. `/Users/philippe/Documents/ETF Manager/data/market_data.py` (~220 lines)
+4. `/Users/philippe/Documents/ETF Manager/tests/test_settings.py` (~150 lines)
+5. `/Users/philippe/Documents/ETF Manager/tests/test_portfolio.py` (~200+ lines)
+6. `/Users/philippe/Documents/ETF Manager/tests/test_market_data.py` (~200+ lines)
+
+**Total Code:** ~1,300 lines across 6 files
+
+### Estimated Timeline
+
+- config/settings.py: 30-45 minutes
+- data/portfolio.py: 45-60 minutes
+- data/market_data.py: 45-60 minutes
+- tests/test_settings.py: 30-45 minutes
+- tests/test_portfolio.py: 45-60 minutes
+- tests/test_market_data.py: 45-60 minutes
+- Quality gates & commit: 20-30 minutes
+
+**Total: 4-6 hours for complete Phase 2 implementation**
+
+---
+

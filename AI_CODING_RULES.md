@@ -533,3 +533,216 @@ Analyze the performance of the current implementation:
 ---
 
 *This file serves as a reference for AI assistants working on this Python project to ensure consistent code quality and adherence to project standards.*
+
+---
+
+## Phase 2: Dataclass & Configuration Management Patterns
+
+### Dataclass Pattern for Configuration (C-8 Extension)
+
+For Phase 2 and beyond, follow this pattern for ALL configuration dataclasses:
+
+```python
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
+from typing import Optional, Dict, Any
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Constants at module level
+CONFIG_DIR = Path.home() / "Library/Application Support/PEA_ETF_Tracker"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+
+# Nested dataclasses first (from innermost to outermost)
+@dataclass
+class InnerConfig:
+    """Inner configuration section."""
+    field1: str = "default_value"
+    field2: bool = True
+
+@dataclass
+class Settings:
+    """Top-level settings with sensible defaults."""
+    field_a: str = "default"
+    field_b: int = 5
+    nested: InnerConfig = field(default_factory=InnerConfig)
+```
+
+**Key Rules:**
+1. Use `field(default_factory=...)` for mutable defaults (dataclass, list, dict)
+2. Order: constants → nested dataclasses → outer dataclass
+3. Every field must have a default value (ensure immutability pattern)
+4. Use type hints on every field
+5. Include docstring for each dataclass
+
+### Dataclass-to-JSON Pattern (F-2, C-12)
+
+For saving dataclasses to JSON:
+
+```python
+from dataclasses import asdict
+import json
+
+def save_config(config: Settings, path: Path) -> None:
+    """Save configuration to JSON file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(path, 'w') as f:
+        json.dump(asdict(config), f, indent=2, default=str)
+
+def load_config(path: Path) -> Settings:
+    """Load configuration from JSON with graceful defaults."""
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+        # Reconstruct dataclass from loaded dict
+        return Settings(**data)
+    except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
+        logger.warning(f"Config error: {e}, using defaults")
+        return Settings()
+```
+
+**Important for Dates:**
+When serializing dates, use custom encoder:
+```python
+import json
+from datetime import date
+
+json.dump(asdict(config), f, indent=2, default=lambda o: o.isoformat() if isinstance(o, date) else str(o))
+```
+
+### DataFrame-to-Dataclass Pattern (For CSV)
+
+When loading dataclass from CSV via pandas:
+
+```python
+from dataclasses import dataclass
+from datetime import date
+import pandas as pd
+
+@dataclass
+class Position:
+    ticker: str
+    quantity: float
+    buy_date: date
+
+# Loading from CSV
+df = pd.read_csv('portfolio.csv')
+positions = [
+    Position(
+        ticker=row['Ticker'],
+        quantity=float(row['Quantity']),
+        buy_date=pd.to_datetime(row['BuyDate']).date()  # String -> date
+    )
+    for _, row in df.iterrows()
+]
+```
+
+### Error Handling for Configuration Files (E-1, F-4)
+
+Pattern for robust config file handling:
+
+```python
+def load_settings(config_path: Path = CONFIG_FILE) -> Settings:
+    """Load settings with graceful degradation to defaults."""
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        if not config_path.exists():
+            logger.info(f"Config not found, creating defaults at {config_path}")
+            save_settings(Settings(), config_path)
+            return Settings()
+        
+        with open(config_path, 'r') as f:
+            data = json.load(f)
+        
+        # Validate before reconstruction
+        if not _validate_config(data):
+            logger.error("Config validation failed, using defaults")
+            return Settings()
+        
+        return Settings(**data)
+        
+    except FileNotFoundError as e:
+        logger.warning(f"Config file missing: {e}")
+        return Settings()
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON: {e}")
+        return Settings()
+    except PermissionError as e:
+        logger.error(f"Permission denied: {e}")
+        return Settings()
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}", exc_info=True)
+        return Settings()
+```
+
+### Validation Pattern (F-3)
+
+Validate loaded configuration has required keys:
+
+```python
+def _validate_config(config_dict: Dict[str, Any]) -> bool:
+    """Validate configuration has required top-level keys."""
+    required_keys = {'field_a', 'field_b'}
+    return all(key in config_dict for key in required_keys)
+```
+
+### Test Pattern for Dataclasses
+
+Use pytest with tmp_path fixture:
+
+```python
+import pytest
+from pathlib import Path
+from config.settings import Settings, load_settings, save_settings
+
+class TestSettings:
+    """Test Settings dataclass and I/O."""
+    
+    def test_settings_has_defaults(self) -> None:
+        """Settings provides sensible defaults."""
+        s = Settings()
+        assert s.field_a == "default"
+        assert s.field_b == 5
+    
+    def test_load_creates_file_if_missing(self, tmp_path: Path) -> None:
+        """load_settings creates file if missing."""
+        config_file = tmp_path / "config.json"
+        settings = load_settings(config_file)
+        assert config_file.exists()
+    
+    def test_save_and_load_roundtrip(self, tmp_path: Path) -> None:
+        """Save and load returns equivalent settings."""
+        config_file = tmp_path / "config.json"
+        original = Settings(field_a="custom")
+        
+        save_settings(original, config_file)
+        loaded = load_settings(config_file)
+        
+        assert loaded.field_a == "custom"
+```
+
+### Summary: Phase 2 Requirements Checklist
+
+For Phase 2 (and reusable for future phases):
+
+- [ ] All configs are dataclasses with `@dataclass` decorator
+- [ ] All dataclass fields have type hints
+- [ ] All mutable defaults use `field(default_factory=...)`
+- [ ] Constants are UPPER_SNAKE_CASE at module level
+- [ ] Load/save functions handle all exception types specifically
+- [ ] Config files created in ~/Library/Application Support/
+- [ ] Defaults provided for missing/corrupted files
+- [ ] All file I/O uses context managers (with statement)
+- [ ] pathlib.Path used for all file paths (never strings)
+- [ ] Logging used throughout (no print statements)
+- [ ] All functions have complete type hints
+- [ ] All functions have docstrings
+- [ ] Tests use pytest fixtures (tmp_path)
+- [ ] Tests parametrized for multiple inputs
+- [ ] >80% test coverage achieved
+- [ ] All quality gates pass (black, pylint ≥8.0, mypy)
+
