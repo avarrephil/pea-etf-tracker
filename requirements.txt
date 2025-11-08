@@ -1,0 +1,36 @@
+# PEA ETF Tracker - Python Dependencies
+# Version 1.0.0 MVP
+
+# UI Framework
+PyQt6==6.6.1
+PyQt6-Qt6==6.6.1
+PyQt6-sip==13.6.0
+
+# Market Data
+yfinance==0.2.32
+
+# Data Visualization
+plotly==5.18.0
+kaleido==0.2.1  # For static image export
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.2
+
+# Development Tools
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-qt==4.2.0  # For PyQt6 testing
+
+# Code Quality
+black==23.12.1
+pylint==3.0.3
+mypy==1.7.1
+flake8==6.1.0
+
+# Type Stubs
+pandas-stubs==2.1.4.231227
+types-requests==2.31.0.10
+
+# Utilities
+python-dateutil==2.8.2

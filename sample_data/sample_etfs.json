@@ -1,0 +1,99 @@
+{
+  "pea_eligible_etfs": [
+    {
+      "ticker": "EWLD.PA",
+      "name": "Amundi MSCI World UCITS ETF",
+      "category": "World Equity",
+      "currency": "EUR",
+      "isin": "FR0010756098",
+      "provider": "Amundi",
+      "description": "Tracks MSCI World Index, global developed markets equity"
+    },
+    {
+      "ticker": "PE500.PA",
+      "name": "Lyxor PEA S&P 500 UCITS ETF",
+      "category": "US Large Cap",
+      "currency": "EUR",
+      "isin": "FR0011871110",
+      "provider": "Lyxor",
+      "description": "Tracks S&P 500 Index, US large cap equity"
+    },
+    {
+      "ticker": "PAEEM.PA",
+      "name": "Lyxor PEA Emergents MSCI EM",
+      "category": "Emerging Markets",
+      "currency": "EUR",
+      "isin": "FR0011440478",
+      "provider": "Lyxor",
+      "description": "Tracks MSCI Emerging Markets Index"
+    },
+    {
+      "ticker": "PCEU.PA",
+      "name": "Lyxor STOXX Europe 600 UCITS ETF",
+      "category": "European Equity",
+      "currency": "EUR",
+      "isin": "FR0011550193",
+      "provider": "Lyxor",
+      "description": "Tracks STOXX Europe 600 Index, European equity"
+    },
+    {
+      "ticker": "PSP5.PA",
+      "name": "Amundi MSCI Europe UCITS ETF",
+      "category": "European Equity",
+      "currency": "EUR",
+      "isin": "LU1681042609",
+      "provider": "Amundi",
+      "description": "Tracks MSCI Europe Index, European developed markets"
+    },
+    {
+      "ticker": "PUST.PA",
+      "name": "Lyxor PEA Russell 2000 UCITS ETF",
+      "category": "US Small Cap",
+      "currency": "EUR",
+      "isin": "FR0011636190",
+      "provider": "Lyxor",
+      "description": "Tracks Russell 2000 Index, US small cap equity"
+    },
+    {
+      "ticker": "PANX.PA",
+      "name": "Lyxor PEA NASDAQ-100 UCITS ETF",
+      "category": "US Technology",
+      "currency": "EUR",
+      "isin": "FR0011871128",
+      "provider": "Lyxor",
+      "description": "Tracks NASDAQ-100 Index, US technology stocks"
+    },
+    {
+      "ticker": "CW8.PA",
+      "name": "Amundi Index MSCI World UCITS ETF",
+      "category": "World Equity",
+      "currency": "EUR",
+      "isin": "LU1681043599",
+      "provider": "Amundi",
+      "description": "Alternative world equity tracker with low fees"
+    },
+    {
+      "ticker": "DNJ.PA",
+      "name": "Amundi Japan TOPIX UCITS ETF",
+      "category": "Japanese Equity",
+      "currency": "EUR",
+      "isin": "FR0010245514",
+      "provider": "Amundi",
+      "description": "Tracks TOPIX Index, Japanese equity market"
+    },
+    {
+      "ticker": "AASI.PA",
+      "name": "Amundi MSCI Pacific Ex Japan UCITS ETF",
+      "category": "Asia-Pacific Equity",
+      "currency": "EUR",
+      "isin": "FR0013411980",
+      "provider": "Amundi",
+      "description": "Tracks MSCI Pacific Ex Japan Index"
+    }
+  ],
+  "metadata": {
+    "last_updated": "2024-11-08",
+    "source": "Euronext Paris",
+    "note": "All ETFs listed are PEA-eligible. Verify current eligibility before investing."
+  }
+}

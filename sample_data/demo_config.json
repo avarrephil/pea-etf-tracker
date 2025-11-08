@@ -1,0 +1,46 @@
+{
+  "default_currency": "EUR",
+  "data_source": "yfinance",
+  "auto_refresh_enabled": false,
+  "auto_refresh_interval_minutes": 5,
+  "etfs": [
+    {
+      "ticker": "EWLD.PA",
+      "name": "Amundi MSCI World UCITS ETF",
+      "weight": 0.30
+    },
+    {
+      "ticker": "PE500.PA",
+      "name": "Lyxor PEA S&P 500 UCITS ETF",
+      "weight": 0.25
+    },
+    {
+      "ticker": "PAEEM.PA",
+      "name": "Lyxor PEA Emergents MSCI EM",
+      "weight": 0.15
+    },
+    {
+      "ticker": "PCEU.PA",
+      "name": "Lyxor STOXX Europe 600 UCITS ETF",
+      "weight": 0.20
+    },
+    {
+      "ticker": "PSP5.PA",
+      "name": "Amundi MSCI Europe UCITS ETF",
+      "weight": 0.10
+    }
+  ],
+  "chart_preferences": {
+    "default_chart": "portfolio_value",
+    "color_scheme": "plotly",
+    "show_grid": true,
+    "show_legend": true
+  },
+  "last_portfolio_path": "",
+  "window_geometry": {
+    "width": 1200,
+    "height": 800,
+    "x": 100,
+    "y": 100
+  }
+}
