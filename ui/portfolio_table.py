@@ -1,0 +1,149 @@
+"""
+Portfolio table widget with CRUD operations.
+
+Displays portfolio positions in a table with columns for ticker, name, quantity,
+buy price, current price, P&L, and P&L percentage.
+"""
+
+import logging
+from typing import Dict
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QHeaderView, QTableWidget, QTableWidgetItem
+
+from data.portfolio import Portfolio
+
+logger = logging.getLogger(__name__)
+
+
+class PortfolioTableWidget(QTableWidget):
+    """Table widget displaying portfolio positions."""
+
+    def __init__(self, portfolio: Portfolio) -> None:
+        """
+        Initialize portfolio table.
+
+        Args:
+            portfolio: Portfolio to display.
+        """
+        super().__init__()
+        self.portfolio = portfolio
+        self._setup_table()
+        self._populate_table()
+        logger.debug("Portfolio table initialized")
+
+    def _setup_table(self) -> None:
+        """Configure table columns and headers."""
+        self.setColumnCount(7)
+        self.setHorizontalHeaderLabels(
+            [
+                "Ticker",
+                "Name",
+                "Quantity",
+                "Buy Price (€)",
+                "Current Price (€)",
+                "P&L (€)",
+                "P&L %",
+            ]
+        )
+
+        # Configure column sizing
+        header = self.horizontalHeader()
+        if header:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+        # Enable sorting
+        self.setSortingEnabled(True)
+
+        # Make table read-only (for now - CRUD will be added in Phase 6)
+        self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+
+    def _populate_table(self) -> None:
+        """Populate table with portfolio positions."""
+        positions = self.portfolio.get_all_positions()
+        self.setRowCount(len(positions))
+
+        for row, position in enumerate(positions):
+            # Ticker
+            self.setItem(row, 0, QTableWidgetItem(position.ticker))
+
+            # Name
+            self.setItem(row, 1, QTableWidgetItem(position.name))
+
+            # Quantity
+            quantity_item = QTableWidgetItem(str(position.quantity))
+            quantity_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+            self.setItem(row, 2, quantity_item)
+
+            # Buy Price
+            buy_price_item = QTableWidgetItem(f"{position.buy_price:.2f}")
+            buy_price_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+            self.setItem(row, 3, buy_price_item)
+
+            # Current price, P&L, P&L% will be filled when prices are updated
+            self.setItem(row, 4, QTableWidgetItem("-"))
+            self.setItem(row, 5, QTableWidgetItem("-"))
+            self.setItem(row, 6, QTableWidgetItem("-"))
+
+    def update_prices(self, prices: Dict[str, float]) -> None:
+        """
+        Update current prices and recalculate P&L for all positions.
+
+        Args:
+            prices: Dictionary mapping ticker to current price.
+        """
+        for row in range(self.rowCount()):
+            ticker_item = self.item(row, 0)
+            if ticker_item:
+                ticker = ticker_item.text()
+                if ticker in prices:
+                    current_price = prices[ticker]
+
+                    # Get quantity and buy price for P&L calculation
+                    position = self.portfolio.get_position(ticker)
+                    if position:
+                        # Current Price
+                        current_price_item = QTableWidgetItem(f"{current_price:.2f}")
+                        current_price_item.setTextAlignment(
+                            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                        )
+                        self.setItem(row, 4, current_price_item)
+
+                        # Calculate P&L
+                        invested = position.quantity * position.buy_price
+                        current_value = position.quantity * current_price
+                        pnl = current_value - invested
+                        pnl_pct = (pnl / invested * 100) if invested > 0 else 0.0
+
+                        # P&L (€)
+                        pnl_item = QTableWidgetItem(f"{pnl:+.2f}")
+                        pnl_item.setTextAlignment(
+                            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                        )
+                        self.setItem(row, 5, pnl_item)
+
+                        # P&L %
+                        pnl_pct_item = QTableWidgetItem(f"{pnl_pct:+.2f}%")
+                        pnl_pct_item.setTextAlignment(
+                            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                        )
+                        self.setItem(row, 6, pnl_pct_item)
+
+                        logger.debug(
+                            f"Updated prices for {ticker}: {current_price:.2f}"
+                        )
+
+    def set_portfolio(self, portfolio: Portfolio) -> None:
+        """
+        Set a new portfolio and refresh the table.
+
+        Args:
+            portfolio: New portfolio to display.
+        """
+        self.portfolio = portfolio
+        self._populate_table()
+        logger.info("Portfolio table updated with new portfolio")

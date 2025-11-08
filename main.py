@@ -1,17 +1,18 @@
 """
 PEA ETF Tracker - Main Application Entry Point.
 
-This module initializes the PyQt6 application, loads user settings,
-and launches the main window.
-
-Usage:
-    python main.py
+Initializes PyQt6 application, loads settings and portfolio, launches main window.
 """
 
 import sys
 import logging
 from pathlib import Path
-from typing import NoReturn
+
+from PyQt6.QtWidgets import QApplication
+
+from config.settings import load_settings
+from data.portfolio import Portfolio
+from ui.main_window import MainWindow
 
 # Configure logging
 LOG_DIR = Path.home() / "Library/Logs/PEA_ETF_Tracker"
@@ -30,56 +31,56 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def main() -> NoReturn:
+def main() -> int:
     """
     Main application entry point.
 
-    Initializes the PyQt6 application, loads user settings and last portfolio,
-    creates the main window, and starts the event loop.
+    Loads settings and portfolio, creates main window, starts event loop.
 
-    Exits:
-        System exit code from QApplication.exec()
+    Returns:
+        Exit code (0 for success, 1 for error).
+
+    Example:
+        >>> sys.exit(main())  # doctest: +SKIP
     """
     logger.info("Starting PEA ETF Tracker v1.0.0")
 
     try:
-        # Import PyQt6 here to handle import errors gracefully
-        from PyQt6.QtWidgets import QApplication
+        # Load settings
+        settings = load_settings()
+        logger.info("Settings loaded successfully")
 
-        # Create application instance
+        # Load last portfolio or create empty
+        portfolio = Portfolio()
+        if settings.last_portfolio_path:
+            try:
+                portfolio = Portfolio.load_from_json(Path(settings.last_portfolio_path))
+                logger.info(f"Loaded portfolio: {settings.last_portfolio_path}")
+            except Exception as e:
+                logger.warning(f"Could not load last portfolio: {e}")
+                logger.info("Starting with empty portfolio")
+
+        # Create Qt application
         app = QApplication(sys.argv)
         app.setApplicationName("PEA ETF Tracker")
         app.setOrganizationName("Philippe Avarre")
         app.setApplicationVersion("1.0.0")
 
-        logger.info("Application initialized successfully")
+        # Create and show main window
+        window = MainWindow(settings, portfolio)
+        window.show()
 
-        # TODO: Load user settings from config module
-        # TODO: Load last opened portfolio
-        # TODO: Create and show main window
-        # TODO: Set up signal handlers
-
-        # For Phase 1, just show a placeholder message
-        logger.info("Phase 1: Foundation complete - UI implementation pending")
-        logger.info(
-            "Application structure ready. Phase 2 will implement core data models."
-        )
-
-        # TODO: Replace with actual main window in Phase 5
-        # main_window = MainWindow()
-        # main_window.show()
-
-        logger.info("Application ready. Exiting Phase 1 stub.")
-        sys.exit(0)
+        logger.info("Application started successfully")
+        return app.exec()
 
     except ImportError as e:
         logger.error(f"Failed to import required modules: {e}")
         logger.error("Please install dependencies: pip install -r requirements.txt")
-        sys.exit(1)
+        return 1
     except Exception as e:
-        logger.error(f"Unexpected error during application startup: {e}", exc_info=True)
-        sys.exit(1)
+        logger.error(f"Application error: {e}", exc_info=True)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
