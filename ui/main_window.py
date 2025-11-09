@@ -20,11 +20,18 @@ from PyQt6.QtWidgets import (
     QTabWidget,
 )
 
-from analytics.performance import calculate_pnl, calculate_portfolio_value
+from analytics.performance import (
+    calculate_allocation,
+    calculate_pnl,
+    calculate_portfolio_value,
+)
 from config.settings import Settings, save_settings
 from data.market_data import fetch_price
 from data.portfolio import Portfolio
+from ui.chart_widget import ChartWidget
+from ui.dashboard import DashboardWidget
 from ui.portfolio_table import PortfolioTableWidget
+from visuals.charts import create_allocation_pie_chart
 
 logger = logging.getLogger(__name__)
 
@@ -109,10 +116,24 @@ class MainWindow(QMainWindow):
         # Edit menu
         edit_menu = menubar.addMenu("&Edit")
 
+        add_position_action = QAction("&Add Position", self)
+        add_position_action.setShortcut("Ctrl+A")
+        add_position_action.triggered.connect(self._add_position)
+        edit_menu.addAction(add_position_action)
+
+        edit_menu.addSeparator()
+
         refresh_action = QAction("&Refresh Prices", self)
         refresh_action.setShortcut("F5")
         refresh_action.triggered.connect(self._refresh_prices)
         edit_menu.addAction(refresh_action)
+
+        edit_menu.addSeparator()
+
+        settings_action = QAction("&Settings...", self)
+        settings_action.setShortcut("Ctrl+,")
+        settings_action.triggered.connect(self._show_settings)
+        edit_menu.addAction(settings_action)
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -140,12 +161,22 @@ class MainWindow(QMainWindow):
         toolbar.addAction(refresh_action)
 
     def _create_central_widget(self) -> None:
-        """Create tab widget with Portfolio and Charts tabs."""
+        """Create tab widget with Portfolio, Dashboard, and Charts tabs."""
         self.tabs = QTabWidget()
 
         # Portfolio tab
         self.portfolio_table = PortfolioTableWidget(self.portfolio)
+        self.portfolio_table.position_edit_requested.connect(self._edit_position)
+        self.portfolio_table.position_delete_requested.connect(self._delete_position)
         self.tabs.addTab(self.portfolio_table, "Portfolio")
+
+        # Dashboard tab
+        self.dashboard = DashboardWidget(portfolio=self.portfolio)
+        self.tabs.addTab(self.dashboard, "Dashboard")
+
+        # Charts tab
+        self.chart_widget = ChartWidget(preferences=self.settings.chart_preferences)
+        self.tabs.addTab(self.chart_widget, "Charts")
 
         self.setCentralWidget(self.tabs)
 
@@ -187,10 +218,10 @@ class MainWindow(QMainWindow):
             if price:
                 self.prices[position.ticker] = price
 
-        # Update table
+        # Update all components
         self.portfolio_table.update_prices(self.prices)
-
-        # Update status bar
+        self.dashboard.update_metrics(self.prices)
+        self._update_charts()
         self._update_status_bar()
 
         logger.info(f"Prices refreshed for {len(self.prices)} positions")
@@ -207,6 +238,7 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             self.portfolio = Portfolio()
             self.portfolio_table.set_portfolio(self.portfolio)
+            self.dashboard.set_portfolio(self.portfolio)
             self.settings.last_portfolio_path = ""
             self.prices = {}
             self._update_status_bar()
@@ -222,6 +254,7 @@ class MainWindow(QMainWindow):
             try:
                 self.portfolio = Portfolio.load_from_json(Path(file_path))
                 self.portfolio_table.set_portfolio(self.portfolio)
+                self.dashboard.set_portfolio(self.portfolio)
                 self.settings.last_portfolio_path = file_path
                 save_settings(self.settings)
                 self.prices = {}
@@ -274,6 +307,7 @@ class MainWindow(QMainWindow):
             try:
                 self.portfolio = Portfolio.import_from_csv(Path(file_path))
                 self.portfolio_table.set_portfolio(self.portfolio)
+                self.dashboard.set_portfolio(self.portfolio)
                 self.prices = {}
                 self._update_status_bar()
                 logger.info(f"Imported portfolio from CSV: {file_path}")
@@ -310,6 +344,119 @@ class MainWindow(QMainWindow):
             "Track and analyze your PEA-eligible ETF portfolio.\n\n"
             "© 2024 Philippe Avarre",
         )
+
+    def _add_position(self) -> None:
+        """Show dialog to add new position."""
+        from ui.position_dialog import PositionDialog
+
+        dialog = PositionDialog(self, mode="add")
+        if dialog.exec():
+            try:
+                position = dialog.get_position()
+                self.portfolio.add_position(position)
+                self.portfolio_table.set_portfolio(self.portfolio)
+                self.dashboard.set_portfolio(self.portfolio)
+                self._auto_save_portfolio()
+                logger.info(f"Added position: {position.ticker}")
+                QMessageBox.information(
+                    self, "Success", f"Added position {position.ticker}"
+                )
+            except ValueError as e:
+                logger.warning(f"Could not add position: {e}")
+                QMessageBox.warning(self, "Error", f"Could not add position:\n{e}")
+
+    def _edit_position(self, ticker: str) -> None:
+        """Show dialog to edit position."""
+        from ui.position_dialog import PositionDialog
+
+        position = self.portfolio.get_position(ticker)
+        if not position:
+            QMessageBox.warning(self, "Error", f"Position {ticker} not found")
+            return
+
+        dialog = PositionDialog(self, position=position, mode="edit")
+        if dialog.exec():
+            try:
+                new_position = dialog.get_position()
+                self.portfolio.update_position(ticker, new_position)
+                self.portfolio_table.set_portfolio(self.portfolio)
+                self.dashboard.set_portfolio(self.portfolio)
+                self._auto_save_portfolio()
+                logger.info(f"Updated position: {ticker}")
+                QMessageBox.information(self, "Success", f"Updated position {ticker}")
+            except ValueError as e:
+                logger.warning(f"Could not update position: {e}")
+                QMessageBox.warning(self, "Error", f"Could not update position:\n{e}")
+
+    def _delete_position(self, ticker: str) -> None:
+        """Delete position after confirmation."""
+        reply = QMessageBox.question(
+            self,
+            "Delete Position",
+            f"Delete {ticker} from portfolio?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self.portfolio.remove_position(ticker)
+                self.portfolio_table.set_portfolio(self.portfolio)
+                self.dashboard.set_portfolio(self.portfolio)
+                self._auto_save_portfolio()
+                logger.info(f"Deleted position: {ticker}")
+                QMessageBox.information(self, "Success", f"Deleted position {ticker}")
+            except ValueError as e:
+                logger.warning(f"Could not delete position: {e}")
+                QMessageBox.warning(self, "Error", f"Could not delete position:\n{e}")
+
+    def _show_settings(self) -> None:
+        """Show settings dialog."""
+        from ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(self, self.settings)
+        if dialog.exec():
+            # Settings already saved in dialog.accept()
+            self._apply_settings()
+            logger.info("Settings updated")
+
+    def _apply_settings(self) -> None:
+        """Apply settings changes to UI."""
+        # Restart auto-refresh timer if interval changed
+        if hasattr(self, "refresh_timer"):
+            self.refresh_timer.stop()
+        if self.settings.auto_refresh_enabled:
+            self._start_auto_refresh()
+
+        # Update chart preferences
+        self.chart_widget.preferences = self.settings.chart_preferences
+
+        logger.debug("Settings applied to UI")
+
+    def _auto_save_portfolio(self) -> None:
+        """Auto-save portfolio to last used path."""
+        if self.settings.last_portfolio_path:
+            try:
+                self.portfolio.save_to_json(Path(self.settings.last_portfolio_path))
+                logger.debug("Portfolio auto-saved")
+            except Exception as e:
+                logger.warning(f"Auto-save failed: {e}")
+
+    def _update_charts(self) -> None:
+        """Update charts with latest data."""
+        if not self.prices:
+            return
+
+        try:
+            # Create allocation pie chart
+            allocation = calculate_allocation(self.portfolio, self.prices)
+            if allocation:
+                tickers = list(allocation.keys())
+                percentages = [allocation[t] * 100 for t in tickers]
+                fig = create_allocation_pie_chart(tickers, percentages)
+                self.chart_widget.display_chart(fig)
+                logger.debug("Charts updated")
+        except Exception as e:
+            logger.warning(f"Could not update charts: {e}")
 
     def _load_geometry(self) -> None:
         """Load window geometry from settings."""

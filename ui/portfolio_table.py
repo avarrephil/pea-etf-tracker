@@ -8,8 +8,9 @@ buy price, current price, P&L, and P&L percentage.
 import logging
 from typing import Dict
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QHeaderView, QTableWidget, QTableWidgetItem
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QHeaderView, QMenu, QTableWidget, QTableWidgetItem
 
 from data.portfolio import Portfolio
 
@@ -18,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 class PortfolioTableWidget(QTableWidget):
     """Table widget displaying portfolio positions."""
+
+    # Signals
+    position_edit_requested = pyqtSignal(str)  # ticker
+    position_delete_requested = pyqtSignal(str)  # ticker
 
     def __init__(self, portfolio: Portfolio) -> None:
         """
@@ -29,6 +34,7 @@ class PortfolioTableWidget(QTableWidget):
         super().__init__()
         self.portfolio = portfolio
         self._setup_table()
+        self._setup_context_menu()
         self._populate_table()
         logger.debug("Portfolio table initialized")
 
@@ -55,8 +61,13 @@ class PortfolioTableWidget(QTableWidget):
         # Enable sorting
         self.setSortingEnabled(True)
 
-        # Make table read-only (for now - CRUD will be added in Phase 6)
+        # Make table read-only
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+
+    def _setup_context_menu(self) -> None:
+        """Set up right-click context menu."""
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
 
     def _populate_table(self) -> None:
         """Populate table with portfolio positions."""
@@ -136,6 +147,40 @@ class PortfolioTableWidget(QTableWidget):
                         logger.debug(
                             f"Updated prices for {ticker}: {current_price:.2f}"
                         )
+
+    def _show_context_menu(self, position) -> None:  # type: ignore
+        """
+        Show context menu for selected row.
+
+        Args:
+            position: Click position.
+        """
+        row = self.rowAt(position.y())
+        if row < 0:
+            return
+
+        ticker_item = self.item(row, 0)
+        if not ticker_item:
+            return
+
+        ticker = ticker_item.text()
+
+        menu = QMenu(self)
+
+        edit_action = QAction("Edit Position", self)
+        edit_action.triggered.connect(lambda: self.position_edit_requested.emit(ticker))
+        menu.addAction(edit_action)
+
+        delete_action = QAction("Delete Position", self)
+        delete_action.triggered.connect(
+            lambda: self.position_delete_requested.emit(ticker)
+        )
+        menu.addAction(delete_action)
+
+        viewport = self.viewport()
+        if viewport:
+            menu.exec(viewport.mapToGlobal(position))
+        logger.debug(f"Context menu shown for {ticker}")
 
     def set_portfolio(self, portfolio: Portfolio) -> None:
         """

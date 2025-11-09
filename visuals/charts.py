@@ -381,7 +381,12 @@ def apply_chart_theme(
         # Update trace colors if traces exist
         for i, trace in enumerate(fig.data):
             if hasattr(trace, "marker"):
-                trace.marker.color = colors[i % len(colors)]
+                # Pie charts use 'colors' (plural), other charts use 'color'
+                if hasattr(trace.marker, "colors"):
+                    # Don't override pie chart colors - they're set automatically
+                    pass
+                elif hasattr(trace.marker, "color"):
+                    trace.marker.color = colors[i % len(colors)]
 
     logger.debug(f"Applied chart theme: {preferences.color_scheme}")
     return fig

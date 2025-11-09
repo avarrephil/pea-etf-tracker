@@ -288,8 +288,29 @@ See [PROJECT_PLAN.md](PROJECT_PLAN.md) for development roadmap and [AI_CODING_RU
 
 For issues and feature requests, please refer to the project documentation.
 
+## Screenshots
+
+_Screenshots coming soon - application fully functional_
+
+**Main Window:**
+- Portfolio table with real-time price updates
+- Sortable columns (Ticker, Name, Quantity, Buy Price, Current Price, P&L, P&L %)
+- Context menu for Edit/Delete positions
+
+**Dashboard:**
+- KPI cards: Total Value, Total Invested, P&L, P&L %, Positions Count
+- Color-coded P&L display (green positive, red negative)
+- Real-time updates on price refresh
+
+**Charts:**
+- Portfolio Value Over Time (line chart)
+- Asset Allocation (pie chart, bar chart)
+- Risk vs Return scatter plot
+- Individual ETF performance charts
+- Export to PNG/HTML
+
 ---
 
-**Version:** 1.0.0 MVP
-**Last Updated:** 2025-11-08
-**Status:** Phase 1 - Foundation Complete
+**Version:** 1.0.0
+**Last Updated:** 2025-11-09
+**Status:** v1.0 MVP Complete - Ready for Release ✅

@@ -35,3 +35,6 @@ types-requests==2.31.0.10
 
 # Utilities
 python-dateutil==2.8.2
+
+# Packaging
+pyinstaller>=6.0
