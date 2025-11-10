@@ -6,10 +6,12 @@ Provides a widget for displaying interactive Plotly charts using QWebEngineView.
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
-import plotly.graph_objects as go
-from PyQt6.QtCore import Qt
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+from matplotlib.figure import Figure
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -21,22 +23,16 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-try:
-    from PyQt6.QtWebEngineWidgets import QWebEngineView
-
-    HAS_WEBENGINE = True
-except ImportError:
-    HAS_WEBENGINE = False
-    QWebEngineView = None  # type: ignore
-
 from config.settings import ChartPreferences
-from visuals.charts import apply_chart_theme, export_chart_to_html, export_chart_to_png
 
 logger = logging.getLogger(__name__)
 
 
 class ChartWidget(QWidget):
-    """Widget for displaying Plotly charts."""
+    """Widget for displaying matplotlib charts."""
+
+    # Signal emitted when chart type selection changes
+    chart_type_changed = pyqtSignal(str)
 
     def __init__(
         self,
@@ -62,7 +58,10 @@ class ChartWidget(QWidget):
             show_grid=True,
             show_legend=True,
         )
-        self.current_fig: Optional[go.Figure] = None
+        self.current_figure: Optional[Figure] = None
+        self.current_tickers: List[str] = []
+        self.current_percentages: List[float] = []
+        self.current_values: Dict[str, float] = {}  # For bar chart
         self._setup_ui()
         logger.debug("Chart widget initialized")
 
@@ -73,15 +72,12 @@ class ChartWidget(QWidget):
         # Top controls
         controls_layout = QHBoxLayout()
 
-        # Chart type selector
+        # Chart type selector (only show available charts)
         self.chart_type_combo = QComboBox()
         self.chart_type_combo.addItems(
             [
-                "Portfolio Value",
                 "Allocation Pie",
                 "Allocation Bar",
-                "Risk vs Return",
-                "Performance",
             ]
         )
         self.chart_type_combo.currentTextChanged.connect(self._on_chart_type_changed)
@@ -100,20 +96,11 @@ class ChartWidget(QWidget):
 
         layout.addLayout(controls_layout)
 
-        # Web view for chart display (or placeholder if WebEngine not available)
-        if HAS_WEBENGINE and QWebEngineView:
-            self.web_view = QWebEngineView()
-            self.web_view.setMinimumHeight(400)
-            layout.addWidget(self.web_view)
-        else:
-            self.web_view = None  # type: ignore
-            placeholder = QLabel(
-                "Chart display requires PyQt6-WebEngine.\n"
-                "Charts can still be exported to PNG/HTML."
-            )
-            placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            placeholder.setMinimumHeight(400)
-            layout.addWidget(placeholder)
+        # Matplotlib canvas for native chart display
+        self.figure = Figure(figsize=(8, 6))
+        self.canvas = FigureCanvasQTAgg(self.figure)
+        self.canvas.setMinimumHeight(400)
+        layout.addWidget(self.canvas)
 
         self.setLayout(layout)
 
@@ -128,42 +115,137 @@ class ChartWidget(QWidget):
         Args:
             chart_type: Selected chart type name.
         """
-        logger.debug(f"Chart type changed to: {chart_type}")
-        # This would trigger chart update in main window
-        # For now, just log the change
+        logger.debug("Chart type changed to: %s", chart_type)
+        # Emit signal to notify main window
+        self.chart_type_changed.emit(chart_type)
 
-    def display_chart(self, fig: go.Figure) -> None:
+    def display_chart(
+        self,
+        chart_type: str,
+        tickers: List[str],
+        percentages: Optional[List[float]] = None,
+        values: Optional[Dict[str, float]] = None,
+    ) -> None:
         """
-        Display Plotly figure in web view.
+        Display chart based on type.
 
         Args:
-            fig: Plotly Figure to display.
+            chart_type: Chart type - "Allocation Pie" or "Allocation Bar".
+            tickers: List of ticker symbols.
+            percentages: List of allocation percentages (0-100) for pie chart.
+            values: Dict mapping ticker to value (EUR) for bar chart.
 
         Example:
-            >>> import plotly.graph_objects as go
-            >>> fig = go.Figure(data=[go.Bar(x=[1, 2, 3], y=[4, 5, 6])])
-            >>> widget.display_chart(fig)
+            >>> widget.display_chart("Allocation Pie", ["VT", "IWDA"], [60.5, 39.5])
+            >>> widget.display_chart("Allocation Bar", ["VT", "IWDA"], values={"VT": 6000, "IWDA": 4000})
         """
-        # Store current figure for export
-        self.current_fig = fig
+        # Store current data for export
+        self.current_tickers = tickers
+        if percentages:
+            self.current_percentages = percentages
+        if values:
+            self.current_values = values
 
-        # Apply theme
-        fig = apply_chart_theme(fig, self.preferences)
+        # Clear previous figure
+        self.figure.clear()
 
-        # Convert to HTML and display in web view (if available)
-        if self.web_view:
-            html = fig.to_html(include_plotlyjs="cdn")
-            self.web_view.setHtml(html)
+        if chart_type == "Allocation Pie":
+            self._render_pie_chart(tickers, percentages or [])
+        elif chart_type == "Allocation Bar":
+            self._render_bar_chart(tickers, values or {})
+        else:
+            logger.warning("Unknown chart type: %s", chart_type)
+            return
+
+        # Adjust layout to prevent label cutoff
+        self.figure.tight_layout()
+
+        # Redraw canvas
+        self.canvas.draw()
 
         # Enable export buttons
         self.export_png_button.setEnabled(True)
-        self.export_html_button.setEnabled(True)
+        self.export_html_button.setEnabled(
+            False
+        )  # HTML export not supported with matplotlib
 
-        logger.info("Chart displayed")
+        logger.info("Chart displayed: %s with %d positions", chart_type, len(tickers))
+
+    def _render_pie_chart(self, tickers: List[str], percentages: List[float]) -> None:
+        """
+        Render pie chart with allocation percentages.
+
+        Args:
+            tickers: List of ticker symbols.
+            percentages: List of allocation percentages (0-100).
+        """
+        ax = self.figure.add_subplot(111)
+        colors = plt.cm.Set3(range(len(tickers)))  # type: ignore[attr-defined]
+
+        wedges, texts, autotexts = ax.pie(  # type: ignore[misc]
+            percentages,
+            labels=tickers,
+            autopct="%1.1f%%",
+            startangle=90,
+            colors=colors,
+            textprops={"fontsize": 10},
+        )
+
+        # Make percentage text bold and white
+        for autotext in autotexts:
+            autotext.set_color("white")
+            autotext.set_fontweight("bold")
+
+        ax.set_title("Portfolio Allocation", fontsize=14, fontweight="bold", pad=20)
+
+        # Equal aspect ratio ensures that pie is drawn as a circle
+        ax.axis("equal")
+
+    def _render_bar_chart(self, tickers: List[str], values: Dict[str, float]) -> None:
+        """
+        Render bar chart with position values.
+
+        Args:
+            tickers: List of ticker symbols.
+            values: Dict mapping ticker to value (EUR).
+        """
+        ax = self.figure.add_subplot(111)
+
+        # Extract values in same order as tickers
+        bar_values = [values.get(ticker, 0.0) for ticker in tickers]
+
+        # Create bar chart
+        bars = ax.bar(
+            tickers,
+            bar_values,
+            color=plt.cm.Set3(range(len(tickers))),  # type: ignore[attr-defined]
+            edgecolor="black",
+        )
+
+        # Add value labels on top of bars
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(
+                bar.get_x() + bar.get_width() / 2.0,
+                height,
+                f"€{height:,.0f}",
+                ha="center",
+                va="bottom",
+                fontsize=9,
+            )
+
+        ax.set_title("Position Values", fontsize=14, fontweight="bold", pad=20)
+        ax.set_xlabel("Ticker", fontsize=11)
+        ax.set_ylabel("Value (EUR)", fontsize=11)
+        ax.grid(axis="y", alpha=0.3)
+
+        # Rotate x-axis labels if many tickers
+        if len(tickers) > 5:
+            ax.set_xticklabels(tickers, rotation=45, ha="right")
 
     def _export_png(self) -> None:
         """Export current chart to PNG file."""
-        if not self.current_fig:
+        if not self.current_tickers:
             QMessageBox.warning(self, "Export Error", "No chart to export")
             return
 
@@ -173,45 +255,58 @@ class ChartWidget(QWidget):
 
         if file_path:
             try:
-                export_chart_to_png(self.current_fig, Path(file_path))
-                logger.info(f"Chart exported to PNG: {file_path}")
+                self.figure.savefig(file_path, dpi=300, bbox_inches="tight")
+                logger.info("Chart exported to PNG: %s", file_path)
                 QMessageBox.information(
                     self, "Export Successful", f"Chart saved to:\n{file_path}"
                 )
             except Exception as e:
-                logger.error(f"Error exporting PNG: {e}")
+                logger.error("Error exporting PNG: %s", e)
                 QMessageBox.critical(
                     self, "Export Error", f"Could not export chart:\n{e}"
                 )
 
     def _export_html(self) -> None:
-        """Export current chart to HTML file."""
-        if not self.current_fig:
-            QMessageBox.warning(self, "Export Error", "No chart to export")
-            return
-
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Chart as HTML", "", "HTML Files (*.html)"
+        """Export current chart to HTML file (not supported with matplotlib)."""
+        QMessageBox.information(
+            self,
+            "Export Not Supported",
+            "HTML export is not available with the native chart display.\n\n"
+            "Please use PNG export instead.",
         )
-
-        if file_path:
-            try:
-                export_chart_to_html(self.current_fig, Path(file_path))
-                logger.info(f"Chart exported to HTML: {file_path}")
-                QMessageBox.information(
-                    self, "Export Successful", f"Chart saved to:\n{file_path}"
-                )
-            except Exception as e:
-                logger.error(f"Error exporting HTML: {e}")
-                QMessageBox.critical(
-                    self, "Export Error", f"Could not export chart:\n{e}"
-                )
 
     def clear_chart(self) -> None:
         """Clear the current chart display."""
-        if self.web_view:
-            self.web_view.setHtml("")
-        self.current_fig = None
+        self.figure.clear()
+        self.canvas.draw()
+        self.current_tickers = []
+        self.current_percentages = []
         self.export_png_button.setEnabled(False)
         self.export_html_button.setEnabled(False)
         logger.debug("Chart cleared")
+
+    def show_empty_state(self) -> None:
+        """Show empty state message when no data is available."""
+        self.figure.clear()
+
+        # Add centered text message
+        ax = self.figure.add_subplot(111)
+        ax.text(
+            0.5,
+            0.5,
+            "No data to display\n\nAdd positions or refresh prices to view charts",
+            horizontalalignment="center",
+            verticalalignment="center",
+            transform=ax.transAxes,
+            fontsize=12,
+            color="#666",
+        )
+        ax.axis("off")
+
+        self.canvas.draw()
+
+        self.current_tickers = []
+        self.current_percentages = []
+        self.export_png_button.setEnabled(False)
+        self.export_html_button.setEnabled(False)
+        logger.debug("Empty state displayed")

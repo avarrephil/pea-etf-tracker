@@ -26,6 +26,7 @@ class ETFPosition:
         quantity: Number of shares owned (supports fractional shares)
         buy_price: Purchase price per share in EUR
         buy_date: Date of purchase
+        manual_price: Manual price override in EUR (optional)
 
     Example:
         >>> position = ETFPosition(
@@ -33,7 +34,8 @@ class ETFPosition:
         ...     name="Amundi MSCI World",
         ...     quantity=100.0,
         ...     buy_price=28.50,
-        ...     buy_date=date(2024, 1, 15)
+        ...     buy_date=date(2024, 1, 15),
+        ...     manual_price=30.00
         ... )
     """
 
@@ -42,6 +44,7 @@ class ETFPosition:
     quantity: float
     buy_price: float
     buy_date: date
+    manual_price: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -52,7 +55,7 @@ class ETFPosition:
 
         Example:
             >>> position.to_dict()
-            {'ticker': 'EWLD.PA', ..., 'buy_date': '2024-01-15'}
+            {'ticker': 'EWLD.PA', ..., 'buy_date': '2024-01-15', 'manual_price': 30.00}
         """
         return {
             "ticker": self.ticker,
@@ -60,6 +63,7 @@ class ETFPosition:
             "quantity": self.quantity,
             "buy_price": self.buy_price,
             "buy_date": self.buy_date.isoformat(),
+            "manual_price": self.manual_price,
         }
 
     @classmethod
@@ -87,6 +91,9 @@ class ETFPosition:
             quantity=float(data["quantity"]),
             buy_price=float(data["buy_price"]),
             buy_date=date.fromisoformat(data["buy_date"]),
+            manual_price=float(data["manual_price"])
+            if data.get("manual_price")
+            else None,
         )
 
 
@@ -256,7 +263,7 @@ class Portfolio:
         """
         Export portfolio to CSV file.
 
-        CSV format: Ticker,Name,Quantity,BuyPrice,BuyDate
+        CSV format: Ticker,Name,Quantity,BuyPrice,BuyDate,ManualPrice
 
         Args:
             path: Path to CSV file.
@@ -269,7 +276,9 @@ class Portfolio:
         """
         with open(path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["Ticker", "Name", "Quantity", "BuyPrice", "BuyDate"])
+            writer.writerow(
+                ["Ticker", "Name", "Quantity", "BuyPrice", "BuyDate", "ManualPrice"]
+            )
 
             for position in self.positions:
                 writer.writerow(
@@ -279,6 +288,9 @@ class Portfolio:
                         position.quantity,
                         position.buy_price,
                         position.buy_date.isoformat(),
+                        position.manual_price
+                        if position.manual_price is not None
+                        else "",
                     ]
                 )
 
@@ -290,8 +302,8 @@ class Portfolio:
         Import portfolio from CSV file.
 
         Expected CSV format:
-        Ticker,Name,Quantity,BuyPrice,BuyDate
-        EWLD.PA,Amundi MSCI World UCITS ETF,100,28.50,2024-01-15
+        Ticker,Name,Quantity,BuyPrice,BuyDate,ManualPrice (optional)
+        EWLD.PA,Amundi MSCI World UCITS ETF,100,28.50,2024-01-15,30.00
 
         Args:
             path: Path to CSV file.
@@ -310,6 +322,7 @@ class Portfolio:
             reader = csv.DictReader(f)
 
             # Verify required columns
+            # (ManualPrice is optional for backward compatibility)
             required_columns = {"Ticker", "Name", "Quantity", "BuyPrice", "BuyDate"}
             if reader.fieldnames is None or not required_columns.issubset(
                 set(reader.fieldnames)
@@ -323,12 +336,17 @@ class Portfolio:
             positions = []
             for row in reader:
                 try:
+                    # Get manual_price if column exists, otherwise None
+                    manual_price_str = row.get("ManualPrice", "")
+                    manual_price = float(manual_price_str) if manual_price_str else None
+
                     position = ETFPosition(
                         ticker=row["Ticker"],
                         name=row["Name"],
                         quantity=float(row["Quantity"]),
                         buy_price=float(row["BuyPrice"]),
                         buy_date=date.fromisoformat(row["BuyDate"]),
+                        manual_price=manual_price,
                     )
                     positions.append(position)
                 except (ValueError, KeyError) as e:

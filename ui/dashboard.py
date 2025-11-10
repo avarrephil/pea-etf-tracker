@@ -147,7 +147,17 @@ class DashboardWidget(QWidget):
         self.pnl_pct_display.setStyleSheet(f"font-size: 18px; color: {pnl_color};")
 
         # Update status
-        self.status_label.setText(f"Last updated with {len(self.prices)} price(s)")
+        manual_count = sum(
+            1
+            for pos in self.portfolio.get_all_positions()
+            if pos.manual_price is not None
+        )
+        if manual_count > 0:
+            self.status_label.setText(
+                f"Last updated with {len(self.prices)} price(s) ({manual_count} manual)"
+            )
+        else:
+            self.status_label.setText(f"Last updated with {len(self.prices)} price(s)")
 
         logger.debug("Dashboard display updated")
 

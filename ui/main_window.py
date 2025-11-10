@@ -24,6 +24,7 @@ from analytics.performance import (
     calculate_allocation,
     calculate_pnl,
     calculate_portfolio_value,
+    calculate_position_values,
 )
 from config.settings import Settings, save_settings
 from data.market_data import fetch_price
@@ -31,7 +32,6 @@ from data.portfolio import Portfolio
 from ui.chart_widget import ChartWidget
 from ui.dashboard import DashboardWidget
 from ui.portfolio_table import PortfolioTableWidget
-from visuals.charts import create_allocation_pie_chart
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +128,11 @@ class MainWindow(QMainWindow):
         refresh_action.triggered.connect(self._refresh_prices)
         edit_menu.addAction(refresh_action)
 
+        refresh_all_action = QAction("Refresh &All Prices (including overrides)", self)
+        refresh_all_action.setShortcut("Ctrl+Shift+F5")
+        refresh_all_action.triggered.connect(self._refresh_all_prices)
+        edit_menu.addAction(refresh_all_action)
+
         edit_menu.addSeparator()
 
         settings_action = QAction("&Settings...", self)
@@ -168,6 +173,9 @@ class MainWindow(QMainWindow):
         self.portfolio_table = PortfolioTableWidget(self.portfolio)
         self.portfolio_table.position_edit_requested.connect(self._edit_position)
         self.portfolio_table.position_delete_requested.connect(self._delete_position)
+        self.portfolio_table.manual_price_requested.connect(
+            self._show_manual_price_dialog
+        )
         self.tabs.addTab(self.portfolio_table, "Portfolio")
 
         # Dashboard tab
@@ -176,6 +184,7 @@ class MainWindow(QMainWindow):
 
         # Charts tab
         self.chart_widget = ChartWidget(preferences=self.settings.chart_preferences)
+        self.chart_widget.chart_type_changed.connect(self._on_chart_type_changed)
         self.tabs.addTab(self.chart_widget, "Charts")
 
         self.setCentralWidget(self.tabs)
@@ -209,7 +218,7 @@ class MainWindow(QMainWindow):
         )
 
     def _refresh_prices(self) -> None:
-        """Fetch latest prices and update UI."""
+        """Fetch latest prices and update UI (preserves manual overrides)."""
         logger.info("Refreshing prices...")
         self.prices = {}
 
@@ -225,6 +234,22 @@ class MainWindow(QMainWindow):
         self._update_status_bar()
 
         logger.info(f"Prices refreshed for {len(self.prices)} positions")
+
+    def _refresh_all_prices(self) -> None:
+        """Fetch latest prices and clear all manual overrides."""
+        logger.info("Refreshing all prices (clearing manual overrides)...")
+
+        # Clear all manual price overrides
+        for position in self.portfolio.get_all_positions():
+            if position.manual_price is not None:
+                logger.info(f"Clearing manual price override for {position.ticker}")
+                position.manual_price = None
+
+        # Fetch fresh prices
+        self._refresh_prices()
+        self._auto_save_portfolio()
+
+        logger.info("All prices refreshed and manual overrides cleared")
 
     def _new_portfolio(self) -> None:
         """Create a new empty portfolio."""
@@ -409,6 +434,57 @@ class MainWindow(QMainWindow):
                 logger.warning(f"Could not delete position: {e}")
                 QMessageBox.warning(self, "Error", f"Could not delete position:\n{e}")
 
+    def _show_manual_price_dialog(self, ticker: str) -> None:
+        """
+        Show manual price dialog for a ticker.
+
+        Args:
+            ticker: ETF ticker symbol.
+        """
+        from datetime import date
+
+        from ui.manual_price_dialog import ManualPriceDialog
+
+        position = self.portfolio.get_position(ticker)
+        if not position:
+            logger.warning(f"Position {ticker} not found")
+            return
+
+        # Get current price (manual or fetched)
+        current_price = position.manual_price
+        is_manual = current_price is not None
+
+        if not is_manual and ticker in self.prices:
+            current_price = self.prices[ticker]
+
+        # Show dialog
+        dialog = ManualPriceDialog(
+            self,
+            ticker=ticker,
+            etf_name=position.name,
+            current_price=current_price,
+            is_manual=is_manual,
+            current_date=date.today(),
+        )
+
+        if dialog.exec():
+            if dialog.is_cleared():
+                # Clear manual override
+                position.manual_price = None
+                logger.info(f"Cleared manual price for {ticker}")
+            else:
+                # Set manual price
+                manual_price = dialog.get_manual_price()
+                position.manual_price = manual_price
+                logger.info(f"Set manual price for {ticker}: €{manual_price:.2f}")
+
+            # Refresh UI (including charts)
+            self.portfolio_table.update_prices(self.prices)
+            self.dashboard.update_metrics(self.prices)
+            self._update_charts()
+            self._update_status_bar()
+            self._auto_save_portfolio()
+
     def _show_settings(self) -> None:
         """Show settings dialog."""
         from ui.settings_dialog import SettingsDialog
@@ -441,22 +517,67 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logger.warning(f"Auto-save failed: {e}")
 
+    def _on_chart_type_changed(self, chart_type: str) -> None:
+        """
+        Handle chart type selection change.
+
+        Args:
+            chart_type: Selected chart type name.
+        """
+        logger.debug("Chart type changed to: %s", chart_type)
+        self._update_charts()
+
     def _update_charts(self) -> None:
-        """Update charts with latest data."""
-        if not self.prices:
+        """Update charts with latest data (manual + fetched prices)."""
+        # Collect effective prices (manual prices override fetched prices)
+        effective_prices: Dict[str, float] = {}
+
+        for position in self.portfolio.get_all_positions():
+            if position.manual_price is not None:
+                # Use manual price if set
+                effective_prices[position.ticker] = position.manual_price
+            elif position.ticker in self.prices:
+                # Use fetched price if available
+                effective_prices[position.ticker] = self.prices[position.ticker]
+
+        # If no prices available, show empty state message
+        if not effective_prices:
+            self.chart_widget.show_empty_state()
+            logger.debug("No price data available for charts")
             return
 
         try:
-            # Create allocation pie chart
-            allocation = calculate_allocation(self.portfolio, self.prices)
-            if allocation:
-                tickers = list(allocation.keys())
-                percentages = [allocation[t] * 100 for t in tickers]
-                fig = create_allocation_pie_chart(tickers, percentages)
-                self.chart_widget.display_chart(fig)
-                logger.debug("Charts updated")
+            # Get selected chart type
+            chart_type = self.chart_widget.chart_type_combo.currentText()
+
+            if chart_type == "Allocation Pie":
+                # Create allocation pie chart
+                allocation = calculate_allocation(self.portfolio, effective_prices)
+                if allocation:
+                    tickers = list(allocation.keys())
+                    percentages = [allocation[t] * 100 for t in tickers]
+                    self.chart_widget.display_chart(
+                        chart_type, tickers, percentages=percentages
+                    )
+            elif chart_type == "Allocation Bar":
+                # Create allocation bar chart
+                position_values = calculate_position_values(
+                    self.portfolio, effective_prices
+                )
+                if position_values:
+                    tickers = list(position_values.keys())
+                    self.chart_widget.display_chart(
+                        chart_type, tickers, values=position_values
+                    )
+
+            logger.debug(
+                "Charts updated with %d positions (%d manual, %d fetched)",
+                len(effective_prices),
+                sum(1 for p in self.portfolio.get_all_positions() if p.manual_price),
+                len(self.prices),
+            )
         except Exception as e:
-            logger.warning(f"Could not update charts: {e}")
+            logger.warning("Could not update charts: %s", e)
 
     def _load_geometry(self) -> None:
         """Load window geometry from settings."""
@@ -472,6 +593,22 @@ class MainWindow(QMainWindow):
         self.settings.window_geometry.width = rect.width()
         self.settings.window_geometry.height = rect.height()
         logger.debug("Window geometry saved")
+
+    def showEvent(self, event) -> None:  # type: ignore
+        """
+        Handle window show event.
+
+        Updates charts when window is first shown (with manual prices if available).
+
+        Args:
+            event: Show event.
+        """
+        super().showEvent(event)
+        # Update charts on first show (works better than __init__ for QWebEngineView)
+        if not hasattr(self, "_charts_initialized"):
+            self._charts_initialized = True
+            if self.portfolio.get_all_positions():
+                self._update_charts()
 
     def closeEvent(self, event) -> None:  # type: ignore
         """

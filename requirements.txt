@@ -5,7 +5,8 @@
 PyQt6==6.6.1
 PyQt6-Qt6==6.6.1
 PyQt6-sip==13.6.0
-PyQt6-WebEngine==6.6.0  # For embedding Plotly charts
+# Note: PyQt6-WebEngine removed due to macOS compatibility issues
+# Charts will export to HTML/PNG but not display inline
 
 # Market Data
 yfinance==0.2.32
@@ -13,6 +14,7 @@ yfinance==0.2.32
 # Data Visualization
 plotly==5.18.0
 kaleido==0.2.1  # For static image export
+matplotlib==3.10.7  # For native PyQt6 chart display
 
 # Data Processing
 pandas==2.1.4

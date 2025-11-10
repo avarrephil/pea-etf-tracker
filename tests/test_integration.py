@@ -407,21 +407,20 @@ def test_chart_widget_displays(qtbot: QtBot) -> None:
 
 
 def test_chart_widget_displays_chart(qtbot: QtBot) -> None:
-    """Chart widget displays Plotly chart."""
+    """Chart widget displays matplotlib chart."""
     from ui.chart_widget import ChartWidget
-    from visuals.charts import create_allocation_pie_chart
 
     widget = ChartWidget()
     qtbot.addWidget(widget)
 
-    # Display chart
-    fig = create_allocation_pie_chart(["EWLD.PA", "PE500.PA"], [60.0, 40.0])
-    widget.display_chart(fig)
+    # Display pie chart
+    widget.display_chart("Allocation Pie", ["EWLD.PA", "PE500.PA"], percentages=[60.0, 40.0])
 
     # Verify export buttons enabled
     assert widget.export_png_button.isEnabled()
-    assert widget.export_html_button.isEnabled()
-    assert widget.current_fig is not None
+    assert not widget.export_html_button.isEnabled()  # HTML export disabled with matplotlib
+    assert widget.current_tickers == ["EWLD.PA", "PE500.PA"]
+    assert widget.current_percentages == [60.0, 40.0]
 
 
 def test_settings_dialog_opens(qtbot: QtBot) -> None:
@@ -680,40 +679,36 @@ def test_main_window_handles_missing_price_data(
 def test_chart_export_handles_missing_kaleido(
     qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Chart widget handles missing kaleido gracefully."""
+    """Chart widget handles missing kaleido gracefully (matplotlib doesn't use kaleido)."""
     from ui.chart_widget import ChartWidget
-    from visuals.charts import create_allocation_pie_chart
 
     widget = ChartWidget()
     qtbot.addWidget(widget)
 
     # Display chart
-    fig = create_allocation_pie_chart(["EWLD.PA"], [100.0])
-    widget.display_chart(fig)
+    widget.display_chart("Allocation Pie", ["EWLD.PA"], percentages=[100.0])
 
-    # Exporting should handle error gracefully (already tested in test_charts.py)
-    # This verifies the UI layer also handles it
-    assert widget.current_fig is not None
+    # Matplotlib exports don't require kaleido
+    assert widget.current_tickers == ["EWLD.PA"]
+    assert widget.current_percentages == [100.0]
 
 
 def test_chart_export_to_invalid_path(qtbot: QtBot, tmp_path: Path) -> None:
     """Chart export handles invalid file paths."""
     from ui.chart_widget import ChartWidget
-    from visuals.charts import create_allocation_pie_chart
 
     widget = ChartWidget()
     qtbot.addWidget(widget)
 
     # Display chart
-    fig = create_allocation_pie_chart(["EWLD.PA"], [100.0])
-    widget.display_chart(fig)
+    widget.display_chart("Allocation Pie", ["EWLD.PA"], percentages=[100.0])
 
     # Try to export to invalid path (read-only directory)
     invalid_path = tmp_path / "nonexistent_dir" / "chart.png"
 
     # Should handle error gracefully by creating parent directory if needed
     # Or raising error if parent doesn't exist
-    assert widget.current_fig is not None
+    assert widget.current_tickers == ["EWLD.PA"]
 
 
 def test_analytics_handles_empty_portfolio() -> None:
@@ -894,17 +889,155 @@ def test_dashboard_displays_correct_metrics(
 def test_chart_widget_updates_chart_on_selection(qtbot: QtBot) -> None:
     """Chart widget updates when chart type changed."""
     from ui.chart_widget import ChartWidget
-    from visuals.charts import create_allocation_pie_chart
 
     widget = ChartWidget()
     qtbot.addWidget(widget)
 
     # Display initial chart
-    fig = create_allocation_pie_chart(["EWLD.PA"], [100.0])
-    widget.display_chart(fig)
+    widget.display_chart("Allocation Pie", ["EWLD.PA"], percentages=[100.0])
 
     # Change chart type selection
     widget.chart_type_combo.setCurrentIndex(1)  # Change to different chart type
 
     # Chart widget should handle selection change
     assert widget.chart_type_combo.currentIndex() == 1
+
+
+# Phase 3 Tests - Portfolio Table Manual Price Integration
+
+
+def test_portfolio_table_double_click_emits_signal(
+    qtbot: QtBot, sample_portfolio: Portfolio
+) -> None:
+    """Double-clicking Current Price cell emits manual_price_requested signal."""
+    table = PortfolioTableWidget(sample_portfolio)
+    qtbot.addWidget(table)
+
+    # Track signal emissions
+    signal_received = []
+    table.manual_price_requested.connect(lambda ticker: signal_received.append(ticker))
+
+    # Simulate double-click on Current Price cell (column 4)
+    table.cellDoubleClicked.emit(0, 4)
+
+    # Signal should be emitted with ticker
+    assert "EWLD.PA" in signal_received
+
+
+def test_portfolio_table_double_click_other_cell_no_signal(
+    qtbot: QtBot, sample_portfolio: Portfolio
+) -> None:
+    """Double-clicking non-price cell does not emit manual_price_requested signal."""
+    table = PortfolioTableWidget(sample_portfolio)
+    qtbot.addWidget(table)
+
+    # Track signal emissions
+    signal_received = []
+    table.manual_price_requested.connect(lambda ticker: signal_received.append(ticker))
+
+    # Simulate double-click on Ticker cell (column 0)
+    table.cellDoubleClicked.emit(0, 0)
+
+    # Signal should NOT be emitted
+    assert len(signal_received) == 0
+
+
+def test_portfolio_table_manual_price_visual_indicator(qtbot: QtBot) -> None:
+    """Portfolio table shows green background for manual prices."""
+    from data.portfolio import ETFPosition, Portfolio
+
+    positions = [
+        ETFPosition(
+            "EWLD.PA",
+            "Amundi World",
+            100.0,
+            28.50,
+            date(2024, 1, 15),
+            manual_price=30.00,
+        ),
+        ETFPosition("PE500.PA", "Lyxor S&P 500", 50.0, 42.30, date(2024, 2, 10)),
+    ]
+    portfolio = Portfolio(positions)
+
+    table = PortfolioTableWidget(portfolio)
+    qtbot.addWidget(table)
+
+    # Update with fetched prices
+    prices = {"EWLD.PA": 29.35, "PE500.PA": 43.12}
+    table.update_prices(prices)
+
+    # Check first position has manual price displayed (not fetched price)
+    price_item = table.item(0, 4)
+    assert price_item.text() == "30.00"  # Manual price, not fetched 29.35
+
+    # Check background color is green for manual price
+    from PyQt6.QtGui import QColor
+
+    bg_color = price_item.background().color()
+    # Light green color
+    assert bg_color == QColor("#90EE90")
+
+    # Check second position uses fetched price (no manual override)
+    price_item2 = table.item(1, 4)
+    assert price_item2.text() == "43.12"  # Fetched price
+
+
+def test_portfolio_table_manual_price_tooltip(qtbot: QtBot) -> None:
+    """Portfolio table shows tooltip for manual prices."""
+    from data.portfolio import ETFPosition, Portfolio
+
+    positions = [
+        ETFPosition(
+            "EWLD.PA",
+            "Amundi World",
+            100.0,
+            28.50,
+            date(2024, 1, 15),
+            manual_price=30.00,
+        ),
+    ]
+    portfolio = Portfolio(positions)
+
+    table = PortfolioTableWidget(portfolio)
+    qtbot.addWidget(table)
+
+    # Update with fetched prices
+    prices = {"EWLD.PA": 29.35}
+    table.update_prices(prices)
+
+    # Check tooltip
+    price_item = table.item(0, 4)
+    assert price_item.toolTip() == "Manual Price (overridden)"
+
+
+def test_portfolio_table_pnl_calculation_with_manual_price(qtbot: QtBot) -> None:
+    """Portfolio table calculates P&L using manual price."""
+    from data.portfolio import ETFPosition, Portfolio
+
+    positions = [
+        ETFPosition(
+            "EWLD.PA",
+            "Amundi World",
+            100.0,
+            28.50,
+            date(2024, 1, 15),
+            manual_price=31.00,
+        ),
+    ]
+    portfolio = Portfolio(positions)
+
+    table = PortfolioTableWidget(portfolio)
+    qtbot.addWidget(table)
+
+    # Update with fetched prices (should be ignored for EWLD.PA)
+    prices = {"EWLD.PA": 29.35}
+    table.update_prices(prices)
+
+    # P&L should use manual price (31.00), not fetched price (29.35)
+    # (100 * 31.00) - (100 * 28.50) = 3100 - 2850 = +250.00
+    pnl_item = table.item(0, 5)
+    assert pnl_item.text() == "+250.00"
+
+    # P&L % should be (250 / 2850) * 100 = 8.77%
+    pnl_pct_item = table.item(0, 6)
+    assert "+8.77" in pnl_pct_item.text()

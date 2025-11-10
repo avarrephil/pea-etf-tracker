@@ -41,8 +41,15 @@ def calculate_portfolio_value(portfolio: Portfolio, prices: Dict[str, float]) ->
     total_value = 0.0
 
     for position in portfolio.get_all_positions():
-        if position.ticker in prices:
-            position_value = position.quantity * prices[position.ticker]
+        # Use manual price if set, otherwise use fetched price
+        effective_price = None
+        if position.manual_price is not None:
+            effective_price = position.manual_price
+        elif position.ticker in prices:
+            effective_price = prices[position.ticker]
+
+        if effective_price is not None:
+            position_value = position.quantity * effective_price
             total_value += position_value
         else:
             logger.warning(f"Price not available for {position.ticker}, skipping")
